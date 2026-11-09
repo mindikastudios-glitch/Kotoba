@@ -3002,20 +3002,72 @@ const chatBackend = {
   },
   async loadMessages(id) {
     const g = await this._gate(id);
-    const [peers, msgs] = await Promise.all([
-      g.peerId ? loadProfilesById([g.peerId]).catch(() => ({})) : {},
-      run(db.from("chat_messages").select("id, sender_id, content, created_at").eq("conversation_id", id).order("created_at", { ascending: false }).limit(500)),
-    ]);
-    const peer = peers[g.peerId] || (g.peerId ? { id: g.peerId } : null);
-    const messages = (msgs.data || []).slice().reverse();
-    const last = messages[messages.length - 1];
-    if (last && last.sender_id !== g.me && g.mine && g.mine.last_read_at !== undefined && (!g.mine.last_read_at || new Date(last.created_at) > new Date(g.mine.last_read_at))) {
-      db.from("chat_participants").update({ last_read_at: new Date().toISOString() }).eq("conversation_id", id).eq("user_id", g.me).then(() => {}, () => {});
-    }
-    const name = peer?.display_name || peer?.username || "Esta persona";
-    const notice = g.state === "pending_in" ? `${name} quiere enviarte un mensaje. Acepta la solicitud para poder responder.` : g.notice;
-    return { peer, messages, canSend: g.canSend, notice, requestId: g.requestId, state: g.state, stateKey: g.stateKey };
-  },
+  async loadMessages(id) {
+  const g = await this._gate(id);
+
+  const [peers, msgs] = await Promise.all([
+    g.peerId ? loadProfilesById([g.peerId]).catch(() => ({})) : {},
+    run(
+      db.from("chat_messages")
+        .select("id, sender_id, content, created_at")
+        .eq("conversation_id", id)
+        .order("created_at", { ascending: false })
+        .limit(500)
+    ),
+  ]);
+
+  const peer = peers[g.peerId] || (g.peerId ? { id: g.peerId } : null);
+
+  // Guardar en IndexedDB los mensajes recibidos de Supabase.
+  const serverMessages = (msgs.data || []).slice().reverse();
+
+  await saveLocalMessages(
+    serverMessages.map(message => ({
+      ...message,
+      conversation_id: id
+    }))
+  );
+
+  // Recuperar el historial local.
+  const localMessages = await getLocalMessages(id);
+
+  // Combinar ambos historiales sin duplicar mensajes.
+  const messageMap = new Map();
+
+  [...localMessages, ...serverMessages].forEach(message => {
+    messageMap.set(message.id, message);
+  });
+
+  const messages = Array.from(messageMap.values())
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+
+  const last = serverMessages[serverMessages.length - 1];
+
+  if (last && last.sender_id !== g.me && g.mine &&
+      g.mine.last_read_at !== undefined &&
+      (!g.mine.last_read_at || new Date(last.created_at) > new Date(g.mine.last_read_at))) {
+    db.from("chat_participants")
+      .update({ last_read_at: new Date().toISOString() })
+      .eq("conversation_id", id)
+      .eq("user_id", g.me)
+      .then(() => {}, () => {});
+  }
+
+  const name = peer?.display_name || peer?.username || "Esta persona";
+  const notice = g.state === "pending_in"
+    ? `${name} quiere enviarte un mensaje. Acepta la solicitud para poder responder.`
+    : g.notice;
+
+  return {
+    peer,
+    messages,
+    canSend: g.canSend,
+    notice,
+    requestId: g.requestId,
+    state: g.state,
+    stateKey: g.stateKey
+  };
+},
   async send(id, text) {
     const content = String(text || "").trim();
     if (!content) return null;
