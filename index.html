@@ -2760,6 +2760,78 @@ function chatIdFrom(data) {
   if (v && typeof v === "object") return v.conversation_id ?? v.id ?? Object.values(v)[0] ?? null;
   return v ?? null;
 }
+    /* Almacenamiento local del historial de chats */
+const chatDB = {
+  name: "kotoba_chat",
+  version: 1,
+  store: "messages"
+};
+
+function openChatDB() {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(chatDB.name, chatDB.version);
+
+    request.onupgradeneeded = () => {
+      const db = request.result;
+
+      if (!db.objectStoreNames.contains(chatDB.store)) {
+        const store = db.createObjectStore(chatDB.store, {
+          keyPath: "id"
+        });
+
+        store.createIndex("conversation_id", "conversation_id", {
+          unique: false
+        });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+async function saveLocalMessages(messages) {
+  if (!Array.isArray(messages) || !messages.length) return;
+
+  const db = await openChatDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(chatDB.store, "readwrite");
+    const store = tx.objectStore(chatDB.store);
+
+    messages.forEach(message => store.put(message));
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error);
+    };
+  });
+}
+
+async function getLocalMessages(conversationId) {
+  const db = await openChatDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(chatDB.store, "readonly");
+    const index = tx.objectStore(chatDB.store).index("conversation_id");
+    const request = index.getAll(conversationId);
+
+    request.onsuccess = () => {
+      resolve(request.result || []);
+      db.close();
+    };
+
+    request.onerror = () => {
+      db.close();
+      reject(request.error);
+    };
+  });
+                                          }
 const chatBackend = {
   enabled: true,
   _ctxPromise: null,
