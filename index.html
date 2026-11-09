@@ -3913,15 +3913,30 @@ setInterval(() => {
    «Enviar mensaje» usa chatBackend.startWith(author.id), que ya está definido arriba.
    ============================================================ */
 const seedsBackend = {
-  enabled: false,
-  async list() { return []; },
+  enabled: true,
+
+  async list() {
+    const { data: rows } = await run(
+      db.from("kotoba_seeds")
+        .select("id, user_id, template, headline, intro, facts, interests, updated_at")
+        .order("updated_at", { ascending: false })
+    );
+
+    const seeds = rows || [];
+    if (!seeds.length) return [];
+
+    const authors = await loadProfilesById(
+      [...new Set(seeds.map(seed => seed.user_id))]
+    );
+
+    return seeds
+      .map(seed => ({
+        ...seed,
+        author: authors[seed.user_id] || null
+      }))
+      .filter(seed => seed.author && !seed.author.is_private);
+  }
 };
-const SEED_TEMPLATES = ["sakura", "matcha", "indigo", "sunset"];
-const seedPreview = [
-  { demo: true, id: "demo-1", template: "sakura", headline: "Hola, soy Hana", intro: "Estudio español desde hace dos años y busco gente con quien practicar conversación.", facts: [{ label: "De", value: "Osaka, Japón" }, { label: "Aprendo", value: "Español" }, { label: "Busco", value: "Intercambio de idiomas" }], interests: ["Anime", "Cocina", "Viajes"], author: { username: "hana", display_name: "Hana" } },
-  { demo: true, id: "demo-2", template: "matcha", headline: "Soy Diego, ¡mucho gusto!", intro: "Aprendiendo japonés con ganas. Me encantaría armar un grupo para estudiar kanji.", facts: [{ label: "De", value: "Buenos Aires" }, { label: "Aprendo", value: "Japonés" }, { label: "Busco", value: "Compañeros de estudio" }], interests: ["Música", "Fotografía", "Café"], author: { username: "diego", display_name: "Diego" } },
-  { demo: true, id: "demo-3", template: "indigo", headline: "Hola, me llamo Sofía", intro: "Me gusta conocer gente nueva y compartir recursos para aprender idiomas.", facts: [{ label: "De", value: "Madrid" }, { label: "Aprendo", value: "Coreano" }, { label: "Busco", value: "Amistades" }], interests: ["Libros", "Cine", "Series"], author: { username: "sofia", display_name: "Sofía" } },
-];
 function seedHtml(seed) {
   const a = seed.author || {};
   const tpl = SEED_TEMPLATES.includes(seed.template) ? seed.template : "sakura";
