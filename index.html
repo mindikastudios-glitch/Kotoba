@@ -3069,14 +3069,41 @@ const chatBackend = {
   };
 },
   async send(id, text) {
-    const content = String(text || "").trim();
-    if (!content) return null;
-    const g = await this._gate(id);
-    if (!g.canSend) throw new Error(g.notice || "No puedes enviar mensajes en esta conversación.");
-    const { data } = await run(db.rpc("chat_send_message", { p_conversation_id: id, p_content: content }));
-    this._ctxAt = 0;
-    return data;
-  },
+  const content = String(text || "").trim();
+  if (!content) return null;
+
+  const g = await this._gate(id);
+  if (!g.canSend) {
+    throw new Error(g.notice || "No puedes enviar mensajes en esta conversación.");
+  }
+
+  const { data } = await run(
+    db.rpc("chat_send_message", {
+      p_conversation_id: id,
+      p_content: content
+    })
+  );
+
+  this._ctxAt = 0;
+
+  // Actualizar el historial local con los mensajes del servidor.
+  const result = await run(
+    db.from("chat_messages")
+      .select("id, sender_id, content, created_at")
+      .eq("conversation_id", id)
+      .order("created_at", { ascending: false })
+      .limit(500)
+  );
+
+  const messages = (result.data || []).map(message => ({
+    ...message,
+    conversation_id: id
+  }));
+
+  await saveLocalMessages(messages);
+
+  return data;
+},
   async startWith(userId) {
     const me = this._me();
     const target = String(userId || "");
