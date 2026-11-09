@@ -2932,7 +2932,7 @@ const chatBackend = {
     const g = await this._gate(id);
     const [peers, msgs] = await Promise.all([
       g.peerId ? loadProfilesById([g.peerId]).catch(() => ({})) : {},
-      run(db.from("chat_messages").select("id, sender_id, content, created_at").eq("conversation_id", id).order("created_at", { ascending: false }).limit(200)),
+      run(db.from("chat_messages").select("id, sender_id, content, created_at").eq("conversation_id", id).order("created_at", { ascending: false }).limit(500)),
     ]);
     const peer = peers[g.peerId] || (g.peerId ? { id: g.peerId } : null);
     const messages = (msgs.data || []).slice().reverse();
